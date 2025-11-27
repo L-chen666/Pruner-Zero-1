@@ -38,18 +38,16 @@ class="center">
   }
 }
 ```
-
-公式：
-\[
-Score_i = |W_i|^2 \times \frac{G_i - \min(G)}{\max(G) - \min(G) + \varepsilon}
-\]
+<p align="center">
+<img src="https://github.com/L-chen666/Pruner-Zero-1/blob/main/image-1.png"
+class="center">
 
 对应代码：
 - 加载符号树：`lib/gptree.py` (`GPTree.load_tree`)
 - 剪枝实现：`lib/prune.py` 中 `prune_pruner_zero`
 - 梯度生成：`lib/gradient_computation.py`
 - 稀疏度检查：`check_sparsity(model)` (`lib/prune.py`)
-- 主入口：`main.py` 行 85–87
+- 主入口：`main.py` 
 
 ## 4. 安装与环境
 
@@ -187,4 +185,5 @@ CUDA_VISIBLE_DEVICES=0 python lora_ft/finetune_lm.py \
 | 结构化断言失败 | 保持 `--sparsity_ratio 0.5` 与 `--sparsity_type` 二者匹配。 |
 
 | LoRA 训练慢 | 降低 `max_train_samples` 或提升 batch（显存允许）。 |
+
 
