@@ -65,116 +65,403 @@ pip install transformers==4.28.0 datasets==2.11.0 wandb sentencepiece
 pip install accelerate==0.18.0
 ```
 
-## 5. 数据与校准
+## 5. 数据集准备
 
-梯度校准：
+### 5.1 数据集加载核心代码
+
+项目使用了两个主要数据集：**WikiText-2** 和 **C4**。数据加载的核心实现位于 `lib/data. py`：
+
+```python name=lib/data.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/lib/data.py
+# Code adapted from https://github.com/IST-DASLab/sparsegpt/blob/master/datautils.py
+
+import numpy as np
+import random
+import torch
+from datasets import load_dataset, load_from_disk 
+
+# Set seed for reproducibility
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+# Wrapper for tokenized input IDs
+class TokenizerWrapper:
+    def __init__(self, input_ids):
+        self.input_ids = input_ids
+
+# Load and process wikitext2 dataset
+def get_wikitext2(nsamples, seed, seqlen, tokenizer):
+    # Load train and test datasets from local disk
+    traindata = load_from_disk('./data/wikitext2_train')
+    testdata = load_from_disk('./data/wikitext2_test')
+
+    # Encode datasets
+    trainenc = tokenizer(" ".join(traindata['text']), return_tensors='pt')
+    testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt')
+
+    # Generate samples from training set
+    random.seed(seed)
+    trainloader = []
+    for _ in range(nsamples):
+        i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
+        j = i + seqlen
+        inp = trainenc.input_ids[:, i:j]
+        tar = inp.clone()
+        tar[:, :-1] = -100
+        trainloader.append((inp, tar))
+    return trainloader, testenc
+
+# Load and process c4 dataset
+def get_c4(nsamples, seed, seqlen, tokenizer):
+    # Load train and validation datasets from local disk
+    traindata = load_from_disk('~/workspace/pruner-zero-private/data/c4_train')
+    valdata = load_from_disk('~/workspace/pruner-zero-private/data/c4_valid')
+
+    # Generate samples from training set
+    random. seed(seed)
+    trainloader = []
+    for _ in range(nsamples):
+        while True:
+            i = random. randint(0, len(traindata) - 1)
+            trainenc = tokenizer(traindata[i]['text'], return_tensors='pt')
+            if trainenc. input_ids.shape[1] > seqlen:
+                break
+        i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
+        j = i + seqlen
+        inp = trainenc.input_ids[:, i:j]
+        tar = inp.clone()
+        tar[:, :-1] = -100
+        trainloader.append((inp, tar))
+
+    # Prepare validation dataset
+    valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
+    valenc = valenc.input_ids[:, :(256 * seqlen)]
+    valenc = TokenizerWrapper(valenc)
+    return trainloader, valenc
+
+# Function to select the appropriate loader based on dataset name
+def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
+    if 'wikitext2' in name:
+        return get_wikitext2(nsamples, seed, seqlen, tokenizer)
+    if "c4" in name:
+        return get_c4(nsamples, seed, seqlen, tokenizer)
+```
+
+### 5.2 数据集准备步骤
+
+**WikiText-2 数据集**：
+- 从本地路径加载：`./data/wikitext2_train` 和 `./data/wikitext2_test`
+- 或从 HuggingFace 加载：`load_dataset('wikitext', 'wikitext-2-raw-v1')`
+
+**C4 数据集**：
+- 从本地路径加载：`~/workspace/pruner-zero-private/data/c4_train` 和 `~/workspace/pruner-zero-private/data/c4_valid`
+- 或从 HuggingFace 加载：`load_dataset('allenai/c4')`
+
+### 5.3 梯度计算的数据加载
+
+梯度计算使用的是 WikiText-2 数据集，代码位于 `lib/gradient_computation.py`：
+
+```python name=lib/gradient_computation.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/lib/gradient_computation.py#L47-L67
+def get_wikitext2(nsamples, seed, seqlen, tokenizer):
+    # Load train and test datasets from local disk
+    traindata = load_from_disk('./data/wikitext2_train')
+    testdata = load_from_disk('./data/wikitext2_test')
+
+    # Encode datasets
+    trainenc = tokenizer(' '.join(traindata['text']), return_tensors='pt')
+    testenc = tokenizer('\n\n'.join(testdata['text']), return_tensors='pt')
+
+    # Generate samples from training set
+    random.seed(seed)
+    trainloader = []
+    for _ in range(nsamples):
+        i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
+        j = i + seqlen
+        inp = trainenc.input_ids[:, i:j]
+        tar = inp.clone()
+        trainloader.append((inp, tar))
+    return trainloader, testenc
+```
+
+---
+
+## 6. 命令行参数配置
+
+### 6.1 主剪枝脚本参数配置 (`main.py`)
+
+```python name=main.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/main.py#L33-L58
+def main():
+    parser = argparse. ArgumentParser()
+    parser.add_argument('--model', type=str, help='LLaMA model')
+    parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
+    parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
+    parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
+    parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
+    parser.add_argument("--prune_method", type=str, 
+                        choices=["magnitude", "wanda", "sparsegpt", 
+                                "ablate_mag_seq", "ablate_wanda_seq", 
+                                "ablate_mag_iter", "ablate_wanda_iter", 
+                                "search", "pruner-zero", 
+                                "ablate_prunerzero_seq", "ablate_prunerzero_iter"])
+    parser.add_argument("--cache_dir", default="llm_weights", type=str)
+    parser.add_argument('--use_variant', action="store_true", 
+                       help="whether to use the wanda variant described in the appendix")
+    parser.add_argument('--save', type=str, default=None, help='Path to save results.')
+    parser.add_argument('--save_model', type=str, default=None, 
+                       help='Path to save the pruned model.')
+    parser.add_argument("--gradient_path", type=str, default=None, 
+                       help="Path to save the gradient.")
+    parser.add_argument("--json_tree", type=str, default="data/best_tree.json", 
+                       help="Path to load the json tree.")
+    parser.add_argument("--eval_zero_shot", action="store_true")
+    args = parser.parse_args()
+```
+
+**主要参数说明：**
+
+| 参数名 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `--model` | str | - | HuggingFace 模型路径或名称（如 `meta-llama/Llama-2-7b-hf`） |
+| `--seed` | int | 0 | 随机种子 |
+| `--nsamples` | int | 128 | 校准数据样本数量 |
+| `--sparsity_ratio` | float | 0 | 稀疏度比例（0-1） |
+| `--sparsity_type` | str | - | 稀疏度类型：`unstructured`、`2:4`、`4:8` |
+| `--prune_method` | str | - | 剪枝方法：`pruner-zero`、`wanda`、`magnitude` 等 |
+| `--cache_dir` | str | `llm_weights` | 模型权重缓存目录 |
+| `--save` | str | None | 结果保存路径 |
+| `--save_model` | str | None | 剪枝后模型保存路径 |
+| `--gradient_path` | str | None | 梯度文件路径（Pruner-Zero 必需） |
+| `--json_tree` | str | `data/best_tree.json` | 符号树 JSON 文件路径 |
+| `--eval_zero_shot` | flag | False | 是否进行零样本评估 |
+
+### 6.2 OPT 模型剪枝参数配置 (`main_opt.py`)
+
+```python name=main_opt.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/main_opt.py#L31-L47
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', type=str, help='LLaMA model')
+    parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
+    parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
+    parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
+    parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
+    parser.add_argument("--prune_method", type=str, 
+                        choices=["magnitude", "wanda", "sparsegpt", 
+                                "ablate_mag_seq", "ablate_wanda_seq", 
+                                "ablate_mag_iter", "ablate_wanda_iter", 
+                                "search", "pruner-zero"])
+    parser.add_argument("--cache_dir", default="llm_weights", type=str)
+    parser.add_argument('--use_variant', action="store_true", 
+                       help="whether to use the wanda variant described in the appendix")
+    parser.add_argument('--save', type=str, default=None, help='Path to save results.')
+    parser.add_argument('--save_model', type=str, default=None, 
+                       help='Path to save the pruned model.')
+    parser.add_argument("--gradient_path", type=str, default=None, 
+                       help="Path to save the gradient.")
+    parser. add_argument("--eval_zero_shot", action="store_true")
+```
+
+### 6.3 梯度计算参数配置 (`lib/gradient_computation.py`)
+
+```python name=lib/gradient_computation.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/lib/gradient_computation.py#L198-L212
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--nsamples', type=int, default=2, help='no of samples used')
+    parser.add_argument('--scale', type=int, default=100, help='scale factor for gradient')
+    parser.add_argument('--llama_version', type=int, default=2, help='llama version used')
+    parser.add_argument('--model', type=str, help='model to used')
+    parser.add_argument('--task', type=str, default='gradient', 
+                       help='task to be performed (gradient or activation)')
+    parser.add_argument('--seed', type=int, default=0, help='seed used')
+```
+
+### 6.4 LoRA 微调参数配置 (`lora_ft/finetune_lm.py`)
+
+```python name=lora_ft/finetune_lm.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/lora_ft/finetune_lm.py#L251-L267
+def main():
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    if len(sys.argv) == 2 and sys.argv[1]. endswith(". json"):
+        # If we pass only one argument to the script and it's the path to a json file,
+        # let's parse it to get our arguments. 
+        model_args, data_args, training_args = parser. parse_json_file(
+            json_file=os.path.abspath(sys.argv[1]))
+    else:
+        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+```
+
+**LoRA 微调数据参数：**
+
+```python
+@dataclass
+class DataTrainingArguments:
+    dataset_name: Optional[str] = field(default=None)  # 数据集名称
+    dataset_config_name: Optional[str] = field(default=None)  # 数据集配置
+    train_file: Optional[str] = field(default=None)  # 训练文件路径
+    validation_file: Optional[str] = field(default=None)  # 验证文件路径
+    max_train_samples: Optional[int] = field(default=None)  # 最大训练样本数
+    max_eval_samples: Optional[int] = field(default=None)  # 最大评估样本数
+    block_size: Optional[int] = field(default=1024)  # 上下文长度
+    preprocessing_num_workers: Optional[int] = field(default=None)  # 预处理进程数
+    validation_split_percentage: Optional[int] = field(default=5)  # 验证集比例
+```
+
+**LoRA 模型参数：**
+
+```python
+@dataclass
+class ModelArguments:
+    model_name_or_path: Optional[str]  # 模型路径
+    lora_r: Optional[int] = field(default=8)  # LoRA rank
+    lora_alpha: Optional[int] = field(default=16)  # LoRA alpha
+    lora_dropout: Optional[float] = field(default=0.05)  # LoRA dropout
+```
+
+---
+
+## 7. 完整运行命令示例
+
+### 7.1 梯度计算命令
+
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lib/gradient_computation.py \
-  --nsamples 128 \
-  --model meta-llama/Llama-2-7b-hf \
-  --llama_version 2 \
-  --task gradient \
-  --save_path data/grad_llama2_7b.pt
+    --nsamples 128 \
+    --scale 100 \
+    --model meta-llama/Llama-2-7b-hf \
+    --llama_version 2 \
+    --task gradient \
+    --seed 0
 ```
 
-评测数据：WikiText 用于困惑度，Zero-Shot 任务包括 boolq, rte, hellaswag, winogrande, arc_easy, arc_challenge, openbookqa。
+### 7.2 非结构化剪枝命令（50% 稀疏度）
 
-LoRA 微调数据：C4 数据集自动通过 datasets 加载。
-
-## 6. 关键依赖说明
-
-| 依赖 | 功能 |
-|------|------|
-| torch | 基础深度学习框架 |
-| transformers | 加载与操作 LLM |
-| accelerate | 多设备调度 |
-| datasets | 数据加载（WikiText/C4 等） |
-| sentencepiece | LLaMA 分词 |
-| bitsandbytes | 低比特权重支持 |
-| wandb | 实验日志 |
-| deepspeed | 大模型分布式/推理优化 |
-| peft | LoRA 微调 |
-
-## 7. 剪枝与评测示例
-
-非结构化 50%：
 ```bash
 python main.py \
-  --model decapoda-research/llama-7b-hf \
-  --prune_method pruner-zero \
-  --sparsity_ratio 0.5 \
-  --sparsity_type unstructured \
-  --nsamples 128 \
-  --gradient_path data/grad_llama_7b.pt \
-  --json_tree data/best_tree.json \
-  --save out/llama_7b/unstructured/pruner-zero/
+    --model meta-llama/Llama-2-7b-hf \
+    --prune_method pruner-zero \
+    --sparsity_ratio 0.5 \
+    --sparsity_type unstructured \
+    --nsamples 128 \
+    --seed 0 \
+    --gradient_path data/grad_llama2_7b.pt \
+    --json_tree data/best_tree. json \
+    --save out/llama_7b/unstructured/pruner-zero/ \
+    --cache_dir llm_weights
 ```
 
-结构化 2:4：
+### 7.3 结构化剪枝命令（2:4 稀疏度）
+
 ```bash
-python main.py \
-  --model decapoda-research/llama-7b-hf \
-  --prune_method pruner-zero \
-  --sparsity_ratio 0.5 \
-  --sparsity_type 2:4 \
-  --gradient_path data/grad_llama_7b.pt \
-  --json_tree data/best_tree.json \
-  --save out/llama_7b/2-4/pruner-zero/
+python main. py \
+    --model meta-llama/Llama-2-7b-hf \
+    --prune_method pruner-zero \
+    --sparsity_ratio 0.5 \
+    --sparsity_type 2:4 \
+    --nsamples 128 \
+    --gradient_path data/grad_llama2_7b.pt \
+    --json_tree data/best_tree.json \
+    --save out/llama_7b/2-4/pruner-zero/
 ```
 
-LLaMA-2：
+### 7.4 OPT 模型剪枝命令
+
 ```bash
-python main.py \
-  --model meta-llama/Llama-2-7b-hf \
-  --prune_method pruner-zero \
-  --sparsity_ratio 0.5 \
-  --sparsity_type unstructured \
-  --gradient_path data/grad_llama2_7b.pt \
-  --json_tree data/best_tree.json \
-  --save out/llama2_7b/unstructured/pruner-zero/
+python main_opt.py \
+    --model facebook/opt-6.7b \
+    --prune_method pruner-zero \
+    --sparsity_ratio 0.5 \
+    --sparsity_type unstructured \
+    --nsamples 128 \
+    --gradient_path data/grad_opt_6.7b.pt \
+    --save out/opt_6.7b/unstructured/pruner-zero/
 ```
 
-零样本评测：
-```bash
-python main.py \
-  --model meta-llama/Llama-2-7b-hf \
-  --prune_method pruner-zero \
-  --sparsity_ratio 0.5 \
-  --sparsity_type unstructured \
-  --gradient_path data/grad_llama2_7b.pt \
-  --json_tree data/best_tree.json \
-  --eval_zero_shot \
-  --save out/llama2_7b/eval/pruner-zero/
-```
+### 7.5 LoRA 微调命令
 
-保存模型：
-```bash
-python main.py \
-  --model decapoda-research/llama-7b-hf \
-  --prune_method pruner-zero \
-  --sparsity_ratio 0.5 \
-  --sparsity_type unstructured \
-  --save_model checkpoints/llama7b_pruned_50 \
-  --save out/llama_7b/unstructured/pruner-zero/
-```
-
-LoRA 微调：
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lora_ft/finetune_lm.py \
-  --model_name_or_path checkpoints/llama7b_pruned_50 \
-  --config_name decapoda-research/llama-7b-hf \
-  --dataset_name c4 \
-  --num_train_epochs 1 \
-  --block_size 1024 \
-  --per_device_train_batch_size 1 \
-  --per_device_eval_batch_size 8 \
-  --do_train --do_eval \
-  --max_train_samples 30000 \
-  --max_eval_samples 128 \
-  --learning_rate 1e-4 \
-  --overwrite_output_dir \
-  --output_dir lora_out/llama7b_pruned_lora/
+    --model_name_or_path out/llama_7b/unstructured/pruner-zero/ \
+    --config_name meta-llama/Llama-2-7b-hf \
+    --dataset_name c4 \
+    --num_train_epochs 1 \
+    --block_size 1024 \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 8 \
+    --do_train \
+    --do_eval \
+    --max_train_samples 30000 \
+    --max_eval_samples 128 \
+    --learning_rate 1e-4 \
+    --overwrite_output_dir \
+    --output_dir out/llama_7b_lora/
 ```
+
+### 7.6 LoRA 模型评估命令
+
+```bash
+python lora_ft/evaluate_ppl.py \
+    --model out/llama_7b/unstructured/pruner-zero/ \
+    --lora_weights out/llama_7b_lora/ \
+    --cache_dir llm_weights \
+    --ctx_length 2048 \
+    --eval_zero_shot
+```
+
+### 7.7 零样本评估命令
+
+```bash
+python main.py \
+    --model meta-llama/Llama-2-7b-hf \
+    --prune_method pruner-zero \
+    --sparsity_ratio 0.5 \
+    --sparsity_type unstructured \
+    --gradient_path data/grad_llama2_7b.pt \
+    --json_tree data/best_tree. json \
+    --save out/llama_7b/unstructured/pruner-zero/ \
+    --eval_zero_shot
+```
+
+---
+
+## 8. 数据加载调用流程
+
+### 8.1 剪枝时的数据加载
+
+在 `lib/prune. py` 中的 `prune_pruner_zero` 函数：
+
+```python
+print("loading calibdation data")
+dataloader, _ = get_loaders(
+    "c4",
+    nsamples=args.nsamples,
+    seed=args.seed,
+    seqlen=model. seqlen,
+    tokenizer=tokenizer
+)
+print("dataset loading complete")
+```
+
+### 8.2 评估时的数据加载
+
+在 `lib/eval.py` 中的 `eval_ppl` 函数：
+
+```python
+def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0")):
+    dataset = "wikitext2"
+    print(f"evaluating on {dataset}")
+    
+    # Get the test loader
+    _, testloader = get_loaders(
+        dataset, 
+        seed=0, 
+        seqlen=model.seqlen, 
+        tokenizer=tokenizer
+    )
+    
+    with torch.no_grad():
+        ppl_test = eval_ppl_wikitext(model, testloader, 1, device)
+    return ppl_test
+```
+
+---
 
 ## 6. 常见问题
 
@@ -185,5 +472,6 @@ CUDA_VISIBLE_DEVICES=0 python lora_ft/finetune_lm.py \
 | 结构化断言失败 | 保持 `--sparsity_ratio 0.5` 与 `--sparsity_type` 二者匹配。 |
 
 | LoRA 训练慢 | 降低 `max_train_samples` 或提升 batch（显存允许）。 |
+
 
 
