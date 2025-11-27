@@ -17,8 +17,9 @@ GitHub: https://github.com/pprp/Pruner-Zero
 - **适用于多种模型架构**：Pruner-Zero不仅在LLaMA系列模型上表现出色，还成功应用于其他模型（如Tiny-LLaMA和OPT），证明了其通用性和泛化能力。
 ## 3. 流程图
 <p align="center">
-<img src="https://raw.githubusercontent.com/pprp/Pruner-Zero/main/.github/images/pruner-zero-main-figure.png" width=100% height=100% 
+<img src="https://github.com/L-chen666/Pruner-Zero-1/blob/main/alt%20text.png" width=100% height=100% 
 class="center">
+ 
 象征式搜索得到的树：
 ```json
 {
@@ -50,25 +51,23 @@ Score_i = |W_i|^2 \times \frac{G_i - \min(G)}{\max(G) - \min(G) + \varepsilon}
 - 稀疏度检查：`check_sparsity(model)` (`lib/prune.py`)
 - 主入口：`main.py` 行 85–87
 
-## 2. 安装与环境
+## 4. 安装与环境
 
-最小环境：
-```bash
+Step 1: Create a new conda environment:
+```
 conda create -n pruner_zero python=3.9
 conda activate pruner_zero
-pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cu118
-pip install transformers==4.28.0 accelerate==0.18.0 datasets==2.11.0 \
-            sentencepiece wandb bitsandbytes==0.42.0
-# 可选：
-pip install deepspeed peft==0.7.1
 ```
 
-或使用完整：
-```bash
-pip install -r requirements.txt
+Step 2: Install relevant packages
+
+```
+conda install pytorch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 cudatoolkit=11.3 -c pytorch -c conda-forge
+pip install transformers==4.28.0 datasets==2.11.0 wandb sentencepiece
+pip install accelerate==0.18.0
 ```
 
-## 3. 数据与校准
+## 5. 数据与校准
 
 梯度校准：
 ```bash
@@ -84,7 +83,7 @@ CUDA_VISIBLE_DEVICES=0 python lib/gradient_computation.py \
 
 LoRA 微调数据：C4 数据集自动通过 datasets 加载。
 
-## 4. 关键依赖说明
+## 6. 关键依赖说明
 
 | 依赖 | 功能 |
 |------|------|
@@ -98,7 +97,7 @@ LoRA 微调数据：C4 数据集自动通过 datasets 加载。
 | deepspeed | 大模型分布式/推理优化 |
 | peft | LoRA 微调 |
 
-## 5. 剪枝与评测示例
+## 7. 剪枝与评测示例
 
 非结构化 50%：
 ```bash
@@ -188,3 +187,4 @@ CUDA_VISIBLE_DEVICES=0 python lora_ft/finetune_lm.py \
 | 结构化断言失败 | 保持 `--sparsity_ratio 0.5` 与 `--sparsity_type` 二者匹配。 |
 
 | LoRA 训练慢 | 降低 `max_train_samples` 或提升 batch（显存允许）。 |
+
