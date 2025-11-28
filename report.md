@@ -19,37 +19,184 @@ GitHub: https://github.com/pprp/Pruner-Zero
 <p align="center">
 <img src="https://github.com/L-chen666/Pruner-Zero-1/blob/main/alt%20text.png" width=100% height=100% 
 class="center">
- 
-象征式搜索得到的树：
-```json
-{
-  "data": "mul",
-  "left": {
-    "data": "abs",
-    "left": {
-      "data": "mul",
-      "left": {"data": "W"},
-      "right": {"data": "W"}
-    }
-  },
-  "right": {
-    "data": "mms",
-    "left": {"data": "G"}
-  }
-}
+
+```mermaid
+graph TB
+    %% --- 样式定义 ---
+    classDef default font-family:'Segoe UI',Arial,sans-serif,font-size:14px;
+    
+    %% 核心过程节点 (蓝色系)
+    classDef process fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:8,ry:8,color:#0d47a1;
+    %% 数据/对象节点 (黄色系)
+    classDef data fill:#fffde7,stroke:#fbc02d,stroke-width:2px,rx:4,ry:4,color:#f57f17;
+    %% 开始/结束节点 (绿色系)
+    classDef start fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,rx:20,ry:20,color:#1b5e20;
+    %% 评估/指标节点 (紫色系)
+    classDef metric fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,rx:5,ry:5,color:#4a148c;
+    %% 关键创新点 (红色系)
+    classDef highlight fill:#ffebee,stroke:#c62828,stroke-width:3px,rx:8,ry:8,color:#b71c1c;
+
+    %% --- 1. 初始化 ---
+    Init([🚀 Initialization<br/>Symbolic Metric]):::start
+
+    %% --- 2. 进化循环 ---
+    subgraph EvoLoop [🧬 Evolutionary Search Loop]
+        direction TB
+        style EvoLoop fill:#fafafa,stroke:#bdbdbd,stroke-width:2px,stroke-dasharray: 5 5,color:#616161
+        
+        Pop[👥 Population]:::data
+        Select[🏆 Selection<br/>Tournament]:::process
+        Parents[👪 Parents]:::data
+        Cross[🔀 Cross Over]:::process
+        Mut[🧬 Mutation]:::process
+        Simp[✨ Opposing Operation<br/>Simplification]:::highlight
+        NewSym(📝 New Symbolic Metric):::data
+
+        Pop --> Select
+        Select --> Parents
+        Parents --> Cross
+        Cross --> Mut
+        Mut --> Simp
+        Simp --> NewSym
+    end
+
+    %% --- 3. 评估 ---
+    subgraph Eval [⏱️ Post-training Evaluation < 5 mins]
+        direction TB
+        style Eval fill:#f9fbe7,stroke:#afb42b,stroke-width:2px,color:#827717
+        
+        LLM[🧠 Original LLM]:::data
+        Pruned[✂️ Pruned LLM]:::data
+        Calc{⚙️ Apply Metric}:::process
+        Score[📊 Perplexity<br/>Wikitext2 / One-shot]:::metric
+
+        LLM --> Calc
+        Calc --> Pruned
+        Pruned --> Score
+    end
+
+    %% --- 连接关系 ---
+    Init ==> Pop
+    NewSym ==> Calc
+    Score == "Add to Population" ==> Pop
+
+    %% 调整连线样式
+    linkStyle default stroke:#546e7a,stroke-width:2px,fill:none;
 ```
-<p align="center">
-<img src="https://github.com/L-chen666/Pruner-Zero-1/blob/main/image-1.png"
-class="center">
 
-对应代码：
-- 加载符号树：`lib/gptree.py` (`GPTree.load_tree`)
-- 剪枝实现：`lib/prune.py` 中 `prune_pruner_zero`
-- 梯度生成：`lib/gradient_computation.py`
-- 稀疏度检查：`check_sparsity(model)` (`lib/prune.py`)
-- 主入口：`main.py` 
+ ## 4.公式与代码对应表
 
-## 4. 安装与环境
+### 4.1 核心公式概览表
+
+| 公式名称 / 描述 | 数学公式 (近似表示) | 文件名 | 行号 |
+| :--- | :--- | :--- | :--- |
+| **Hessian 矩阵在线更新** (SparseGPT) | $$H_{new} = \frac{n}{n+\Delta n} H_{old} + \sqrt{\frac{2}{n+\Delta n}} X X^T$$ | `lib/sparsegpt.py` | 35-38 |
+| **Hessian 逆矩阵计算** (Cholesky) | $$H^{-1} = (L L^T)^{-1}$$ | `lib/sparsegpt.py` | 64-67 |
+| **显著性分数 / 剪枝指标** (OBS Metric) | $$\text{metric} = \frac{w^2}{([H^{-1}]_{ii})^2}$$ | `lib/sparsegpt.py` | 84 |
+| **困惑度计算** (Perplexity) | $$PPL = \exp\left(\frac{1}{N} \sum -\log P(x_i)\right)$$ | `lib/eval.py` | 75 |
+| **负对数似然** (NLL) | $$\text{NLL} = \text{CrossEntropy} \times \text{SeqLen}$$ | `lib/eval.py` | 66-70 |
+| **Min-Max 归一化算子** (MMS) | $$f(x) = \frac{x - \min(x)}{\max(x) - \min(x)}$$ | `lib/gptree.py` | 99 |
+| **Z-Score 归一化算子** (ZSN) | $$f(x) = \frac{x - \mu}{\sigma}$$ | `lib/gptree.py` | 107 |
+| **除法算子 (带归一化)** (Div) | $$f(x, y) = \frac{x}{\|y\|_2}$$ | `lib/gptree.py` | 37 |
+| **模型稀疏度计算** | $$\text{Sparsity} = \frac{\sum \mathbb{I}(w=0)}{N_{total}}$$ | `lib/prune.py` | 49-58 |
+
+---
+
+### 4.2 代码实现
+
+### Hessian 矩阵在线更新
+**文件**: `lib/sparsegpt.py`
+**行号**: 35-38
+代码使用累积更新的方式近似 Hessian 矩阵：
+```python
+self.H *= self.nsamples / (self.nsamples + tmp)
+self.nsamples += tmp
+inp = math.sqrt(2 / self.nsamples) * inp.float()
+self.H += inp.matmul(inp.t())
+```
+
+### Hessian 逆矩阵计算
+**文件**: `lib/sparsegpt.py`
+**行号**: 64-67
+使用 Cholesky 分解来计算逆矩阵以保证数值稳定性：
+```python
+damp = percdamp * torch.mean(torch.diag(H))
+diag = torch.arange(self.columns, device=self.dev)
+H[diag, diag] += damp
+H = torch.linalg.cholesky(H)
+H = torch.cholesky_inverse(H)
+```
+
+### 显著性分数 (OBS Metric)
+**文件**: `lib/sparsegpt.py`
+**行号**: 84
+基于 Optimal Brain Surgeon 理论计算权重的重要性分数：
+```python
+tmp = W1 ** 2 / (torch.diag(Hinv1).reshape((1, -1))) ** 2
+```
+
+### 困惑度计算 (Perplexity)
+**文件**: `lib/eval.py`
+**行号**: 75
+将所有批次的负对数似然求和后取指数：
+```python
+ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
+```
+
+### 负对数似然 (NLL)
+**文件**: `lib/eval.py`
+**行号**: 66-70
+计算单个批次的损失并转换为负对数似然：
+```python
+loss = loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
+neg_log_likelihood = loss.float() * model.seqlen * (j-i)
+```
+
+### Min-Max 归一化算子
+**文件**: `lib/gptree.py`
+**行号**: 99
+将输入张量缩放到 [0, 1] 区间：
+```python
+return (x - x.min()) / (x.max() - x.min())
+```
+
+### Z-Score 归一化算子
+**文件**: `lib/gptree.py`
+**行号**: 107
+标准化输入张量，使其均值为0，方差为1：
+```python
+return (x - x.mean()) / x.std()
+```
+
+### 除法算子 (带归一化)
+**文件**: `lib/gptree.py`
+**行号**: 37
+Pruner-Zero 特定的算子设计，分母使用 L2 范数：
+```python
+return x / torch.norm(y)
+```
+
+### 对数算子 (数值稳定)
+**文件**: `lib/gptree.py`
+**行号**: 70
+增加 epsilon (0.001) 防止 log(0) 错误：
+```python
+return torch.log(torch.abs(x) + 0.001)
+```
+
+### 模型稀疏度计算
+**文件**: `lib/prune.py`
+**行号**: 49-58
+统计模型中权重为 0 的比例：
+```python
+count += (W==0).sum().item()
+# ...
+total_params += W.numel()
+# ...
+return float(count)/total_params
+``` 
+
+## 5. 安装与环境
 
 Step 1: Create a new conda environment:
 ```
@@ -65,9 +212,9 @@ pip install transformers==4.28.0 datasets==2.11.0 wandb sentencepiece
 pip install accelerate==0.18.0
 ```
 
-## 5. 数据集准备
+## 6. 数据集准备
 
-### 5.1 数据集加载核心代码
+### 6.1 数据集加载核心代码
 
 项目使用了两个主要数据集：**WikiText-2** 和 **C4**。数据加载的核心实现位于 `lib/data. py`：
 
@@ -147,7 +294,7 @@ def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
         return get_c4(nsamples, seed, seqlen, tokenizer)
 ```
 
-### 5.2 数据集准备步骤
+### 6.2 数据集准备步骤
 
 **WikiText-2 数据集**：
 - 从本地路径加载：`./data/wikitext2_train` 和 `./data/wikitext2_test`
@@ -157,7 +304,7 @@ def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
 - 从本地路径加载：`~/workspace/pruner-zero-private/data/c4_train` 和 `~/workspace/pruner-zero-private/data/c4_valid`
 - 或从 HuggingFace 加载：`load_dataset('allenai/c4')`
 
-### 5.3 梯度计算的数据加载
+### 6.3 梯度计算的数据加载
 
 梯度计算使用的是 WikiText-2 数据集，代码位于 `lib/gradient_computation.py`：
 
@@ -185,9 +332,9 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer):
 
 ---
 
-## 6. 命令行参数配置
+## 7. 命令行参数配置
 
-### 6.1 主剪枝脚本参数配置 (`main.py`)
+### 7.1 主剪枝脚本参数配置 (`main.py`)
 
 ```python name=main.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/main.py#L33-L58
 def main():
@@ -234,7 +381,7 @@ def main():
 | `--json_tree` | str | `data/best_tree.json` | 符号树 JSON 文件路径 |
 | `--eval_zero_shot` | flag | False | 是否进行零样本评估 |
 
-### 6.2 OPT 模型剪枝参数配置 (`main_opt.py`)
+### 7.2 OPT 模型剪枝参数配置 (`main_opt.py`)
 
 ```python name=main_opt.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/main_opt.py#L31-L47
 def main():
@@ -260,7 +407,7 @@ def main():
     parser. add_argument("--eval_zero_shot", action="store_true")
 ```
 
-### 6.3 梯度计算参数配置 (`lib/gradient_computation.py`)
+### 7.3 梯度计算参数配置 (`lib/gradient_computation.py`)
 
 ```python name=lib/gradient_computation.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/lib/gradient_computation.py#L198-L212
 if __name__ == '__main__':
@@ -274,7 +421,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0, help='seed used')
 ```
 
-### 6.4 LoRA 微调参数配置 (`lora_ft/finetune_lm.py`)
+### 7.4 LoRA 微调参数配置 (`lora_ft/finetune_lm.py`)
 
 ```python name=lora_ft/finetune_lm.py url=https://github.com/L-chen666/Pruner-Zero-1/blob/2f97f98a6ed99ad0c9137471b8fc04e72be071de/lora_ft/finetune_lm.py#L251-L267
 def main():
@@ -317,9 +464,9 @@ class ModelArguments:
 
 ---
 
-## 7. 完整运行命令示例
+## 8. 完整运行命令示例
 
-### 7.1 梯度计算命令
+### 8.1 梯度计算命令
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lib/gradient_computation.py \
@@ -331,7 +478,7 @@ CUDA_VISIBLE_DEVICES=0 python lib/gradient_computation.py \
     --seed 0
 ```
 
-### 7.2 非结构化剪枝命令（50% 稀疏度）
+### 8.2 非结构化剪枝命令（50% 稀疏度）
 
 ```bash
 python main.py \
@@ -347,7 +494,7 @@ python main.py \
     --cache_dir llm_weights
 ```
 
-### 7.3 结构化剪枝命令（2:4 稀疏度）
+### 8.3 结构化剪枝命令（2:4 稀疏度）
 
 ```bash
 python main. py \
@@ -361,7 +508,7 @@ python main. py \
     --save out/llama_7b/2-4/pruner-zero/
 ```
 
-### 7.4 OPT 模型剪枝命令
+### 8.4 OPT 模型剪枝命令
 
 ```bash
 python main_opt.py \
@@ -374,7 +521,7 @@ python main_opt.py \
     --save out/opt_6.7b/unstructured/pruner-zero/
 ```
 
-### 7.5 LoRA 微调命令
+### 8.5 LoRA 微调命令
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lora_ft/finetune_lm.py \
@@ -394,7 +541,7 @@ CUDA_VISIBLE_DEVICES=0 python lora_ft/finetune_lm.py \
     --output_dir out/llama_7b_lora/
 ```
 
-### 7.6 LoRA 模型评估命令
+### 8.6 LoRA 模型评估命令
 
 ```bash
 python lora_ft/evaluate_ppl.py \
@@ -405,7 +552,7 @@ python lora_ft/evaluate_ppl.py \
     --eval_zero_shot
 ```
 
-### 7.7 零样本评估命令
+### 8.7 零样本评估命令
 
 ```bash
 python main.py \
@@ -421,9 +568,9 @@ python main.py \
 
 ---
 
-## 8. 数据加载调用流程
+## 9. 数据加载调用流程
 
-### 8.1 剪枝时的数据加载
+### 9.1 剪枝时的数据加载
 
 在 `lib/prune. py` 中的 `prune_pruner_zero` 函数：
 
@@ -439,7 +586,7 @@ dataloader, _ = get_loaders(
 print("dataset loading complete")
 ```
 
-### 8.2 评估时的数据加载
+### 9.2 评估时的数据加载
 
 在 `lib/eval.py` 中的 `eval_ppl` 函数：
 
@@ -463,15 +610,10 @@ def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0")):
 
 ---
 
-## 6. 常见问题
+## 10.运行结果图
 
-| 问题 | 解决 |
-|------|------|
-| Tokenizer 报错 | 确保 transformers=4.28.0 + sentencepiece 安装；参见官方 issue 建议。 |
-| 显存不足 | 减少 nsamples；使用 8bit；降低 batch；不做零样本评测。 |
-| 结构化断言失败 | 保持 `--sparsity_ratio 0.5` 与 `--sparsity_type` 二者匹配。 |
 
-| LoRA 训练慢 | 降低 `max_train_samples` 或提升 batch（显存允许）。 |
+
 
 
 
