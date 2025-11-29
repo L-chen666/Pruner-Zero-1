@@ -610,7 +610,72 @@ def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0")):
 
 ---
 
-## 10.运行结果图
+## 10.运行结果
+
+
+由于数据集过大，因此只做了Pruner-Zero在 LLaMA-7B 模型进行 50% 非结构化剪枝,并结合自己研究方向做其他方法的对比实验，所有的实验均在相同的环境下运行，并使用了以下统一参数：
+
+*   **模型 (Model)**: `llama_7b`
+*   **稀疏度 (Sparsity Ratio)**: `0.5` (剪除 50% 的参数)
+*   **稀疏类型 (Sparsity Type)**: `unstructured` (非结构化剪枝)
+*   **评估数据集 (Dataset)**: `wikitext2`
+*   **评估指标 (Metric)**: Perplexity (困惑度，PPL) - **数值越低越好**
+
+### 图 1：Pruner-Zero 方法 (本仓库核心方法)
+
+*   **运行命令**: 
+    ```bash
+    python main.py ... --prune_method pruner-zero ... --json_tree .../best_tree.json
+    ```
+*   **方法简介**: 使用该项目提出的 Pruner-Zero 算法，依赖于进化的符号公式生成的决策树 (`best_tree.json`) 进行剪枝。
+*   **运行结果**: `wikitext perplexity 6.876140594482422`
+*   **分析**: 
+    *   **PPL: 6.88**
+    *   这是 Pruner-Zero 算法的实际表现。在同等稀疏度下，它成功将模型的困惑度控制在很低的水平。
+
+### 图 2：SparseGPT 方法 (强基线)
+
+*   **运行命令**:
+    ```bash
+    python main.py ... --prune_method sparsegpt ...
+    ```
+*   **方法简介**: SparseGPT 是一种经典的基于二阶 Hessian 信息的剪枝算法，通常作为该领域的 SOTA (State-of-the-Art) 基线进行对比。
+*   **运行结果**: `wikitext perplexity 6.72606086730957`
+*   **分析**: 
+    *   **PPL: 6.73** (本次测试中的**最优结果**)
+    *   在这个特定的设置下（50% 非结构化稀疏），SparseGPT 表现略微优于 Pruner-Zero。这表明利用二阶信息对于保留模型精度非常有效。
+
+### 图 3：Wanda 方法 (基线)
+
+*   **运行命令**:
+    ```bash
+    python main.py ... --prune_method wanda ...
+    ```
+*   **方法简介**: Wanda (Pruning by Weights and activations) 是一种基于权重幅度和输入激活值乘积的剪枝方法，计算量通常小于 SparseGPT。
+*   **运行结果**: `wikitext perplexity 7.091907501220703`
+*   **分析**: 
+    *   **PPL: 7.09**
+    *   在本次对比中表现最弱。相比于前两种方法，Wanda 在 50% 稀疏度下的精度损失最大。
+
+## 3. 性能对比总结表
+
+| 排名 | 截图编号 | 剪枝方法 (Method) | 困惑度 (PPL) | 相对表现 |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | 图 2 | **SparseGPT** | **6.73** |  **最优** (保留能力最强) |
+| 2 | 图 1 | Pruner-Zero | 6.88 |  次优 (非常接近 SparseGPT) |
+| 3 | 图 3 | Wanda | 7.09 |  较差 |
+
+**结论**: 
+在 LLaMA-7B 模型进行 50% 非结构化剪枝的任务上，**SparseGPT 效果最好**，Pruner-Zero 紧随其后（差距仅约 0.15 PPL），而 Wanda 的效果相对较差。这验证了代码库能够正确复现不同 Baseline 的性能，并提供了有效的对比数据。
+
+## 4. 代码逻辑验证
+
+基于代码库文件的分析：
+
+1.  **方法调用**: `main.py` (lines 75-88) 正确解析了 `--prune_method` 参数，并分别调用了 `prune_wanda`, `prune_sparsegpt`, 和 `prune_pruner_zero` 函数。
+2.  **评估逻辑**: 剪枝结束后，代码调用了 `lib/eval.py` 中的 `eval_ppl` 函数 (main.py line 99)。
+3.  **数据集**: `lib/eval.py` 强制指定了 `dataset = "wikitext2"` (line 16)，这解释了为什么所有截图的输出日志中都包含 `evaluating on wikitext2`。
+4.  **计算方式**: PPL 计算使用的是标准的滑动窗口负对数似然 (Negative Log-Likelihood) 方法，代码逻辑符合标准评估流程。
 
 
 
