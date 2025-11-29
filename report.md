@@ -37,20 +37,20 @@ graph TB
     classDef highlight fill:#ffebee,stroke:#c62828,stroke-width:3px,rx:8,ry:8,color:#b71c1c;
 
     %% --- 1. 初始化 ---
-    Init([🚀 Initialization<br/>Symbolic Metric]):::start
+    Init([ Initialization<br/>Symbolic Metric]):::start
 
     %% --- 2. 进化循环 ---
-    subgraph EvoLoop [🧬 Evolutionary Search Loop]
+    subgraph EvoLoop [ Evolutionary Search Loop]
         direction TB
         style EvoLoop fill:#fafafa,stroke:#bdbdbd,stroke-width:2px,stroke-dasharray: 5 5,color:#616161
         
-        Pop[👥 Population]:::data
-        Select[🏆 Selection<br/>Tournament]:::process
-        Parents[👪 Parents]:::data
-        Cross[🔀 Cross Over]:::process
-        Mut[🧬 Mutation]:::process
-        Simp[✨ Opposing Operation<br/>Simplification]:::highlight
-        NewSym(📝 New Symbolic Metric):::data
+        Pop[ Population]:::data
+        Select[ Selection<br/>Tournament]:::process
+        Parents[ Parents]:::data
+        Cross[ Cross Over]:::process
+        Mut[ Mutation]:::process
+        Simp[ Opposing Operation<br/>Simplification]:::highlight
+        NewSym( New Symbolic Metric):::data
 
         Pop --> Select
         Select --> Parents
@@ -61,14 +61,14 @@ graph TB
     end
 
     %% --- 3. 评估 ---
-    subgraph Eval [⏱️ Post-training Evaluation < 5 mins]
+    subgraph Eval [ Post-training Evaluation < 5 mins]
         direction TB
         style Eval fill:#f9fbe7,stroke:#afb42b,stroke-width:2px,color:#827717
         
-        LLM[🧠 Original LLM]:::data
-        Pruned[✂️ Pruned LLM]:::data
-        Calc{⚙️ Apply Metric}:::process
-        Score[📊 Perplexity<br/>Wikitext2 / One-shot]:::metric
+        LLM[ Original LLM]:::data
+        Pruned[ Pruned LLM]:::data
+        Calc{ Apply Metric}:::process
+        Score[ Perplexity<br/>Wikitext2 / One-shot]:::metric
 
         LLM --> Calc
         Calc --> Pruned
@@ -676,4 +676,5 @@ class="center">
 
 **结论**: 
 在 LLaMA-7B 模型进行 50% 非结构化剪枝的任务上，**SparseGPT 效果最好**，Pruner-Zero 紧随其后（差距仅约 0.15 PPL），而 Wanda 的效果相对较差。这验证了代码库能够正确复现不同 Baseline 的性能，并提供了有效的对比数据。
+
 
